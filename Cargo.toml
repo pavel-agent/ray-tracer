@@ -1,0 +1,11 @@
+[package]
+name = "ray-tracer"
+version = "0.1.0"
+edition = "2021"
+description = "A Rust path tracer with BVH acceleration, multiple materials, and multi-threaded rendering"
+
+[dependencies]
+rand = "0.8"
+rayon = "1.10"
+image = "0.24"
+clap = { version = "4", features = ["derive"] }
