@@ -1,6 +1,7 @@
 # Ray Tracer
 
 [![CI](https://github.com/pavel-genai/ray-tracer/actions/workflows/ci.yml/badge.svg)](https://github.com/pavel-genai/ray-tracer/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/pavel-genai/ray-tracer/branch/main/graph/badge.svg)](https://codecov.io/gh/pavel-genai/ray-tracer)
 
 A path tracer written in Rust featuring BVH acceleration, multiple material types, and multi-threaded rendering via Rayon.
 

@@ -10,3 +10,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --verbose
       - run: cargo test --verbose
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin
+      - name: Generate code coverage
+        run: cargo tarpaulin --out xml --output-dir coverage
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
