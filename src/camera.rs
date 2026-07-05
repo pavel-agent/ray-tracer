@@ -180,4 +180,165 @@ mod tests {
             "Wide FOV should produce larger angle from center"
         );
     }
+
+    // ---- Additional Camera tests ----
+
+    #[test]
+    fn camera_ray_at_corners_no_aperture() {
+        let cam = default_camera();
+        let mut rng = rand::thread_rng();
+
+        // All four corners should produce rays with the same origin (no aperture)
+        let corners = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)];
+        for (s, t) in corners {
+            let ray = cam.get_ray(s, t, &mut rng);
+            assert!(approx_eq(ray.origin.x, 0.0));
+            assert!(approx_eq(ray.origin.y, 0.0));
+            assert!(approx_eq(ray.origin.z, 0.0));
+        }
+    }
+
+    #[test]
+    fn camera_left_right_symmetry() {
+        let cam = default_camera();
+        let mut rng = rand::thread_rng();
+
+        // Rays at (0.0, 0.5) and (1.0, 0.5) should be symmetric around center
+        let left = cam.get_ray(0.0, 0.5, &mut rng).direction.unit();
+        let right = cam.get_ray(1.0, 0.5, &mut rng).direction.unit();
+
+        // x components should be negatives of each other (symmetric)
+        assert!(approx_eq(left.x, -right.x));
+        // y and z should be approximately equal
+        assert!(approx_eq(left.y, right.y));
+        assert!(approx_eq(left.z, right.z));
+    }
+
+    #[test]
+    fn camera_up_down_symmetry() {
+        let cam = default_camera();
+        let mut rng = rand::thread_rng();
+
+        let bottom = cam.get_ray(0.5, 0.0, &mut rng).direction.unit();
+        let top = cam.get_ray(0.5, 1.0, &mut rng).direction.unit();
+
+        // y components should be negatives of each other
+        assert!(approx_eq(bottom.y, -top.y));
+        // x and z should be approximately equal
+        assert!(approx_eq(bottom.x, top.x));
+        assert!(approx_eq(bottom.z, top.z));
+    }
+
+    #[test]
+    fn camera_lookfrom_position() {
+        let lookfrom = Point3::new(5.0, 3.0, 2.0);
+        let cam = Camera::new(
+            lookfrom,
+            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            90.0,
+            1.0,
+            0.0,
+            1.0,
+        );
+        let mut rng = rand::thread_rng();
+        let ray = cam.get_ray(0.5, 0.5, &mut rng);
+        // With no aperture, origin should be at lookfrom
+        assert!(approx_eq(ray.origin.x, lookfrom.x));
+        assert!(approx_eq(ray.origin.y, lookfrom.y));
+        assert!(approx_eq(ray.origin.z, lookfrom.z));
+    }
+
+    #[test]
+    fn camera_focus_distance() {
+        // Larger focus distance changes the viewport size
+        let cam_near = Camera::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.0, 0.0, -1.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            90.0,
+            1.0,
+            0.0,
+            1.0,
+        );
+        let cam_far = Camera::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.0, 0.0, -1.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            90.0,
+            1.0,
+            0.0,
+            10.0,
+        );
+        let mut rng = rand::thread_rng();
+        let near_corner = cam_near.get_ray(1.0, 1.0, &mut rng).direction;
+        let far_corner = cam_far.get_ray(1.0, 1.0, &mut rng).direction;
+        // Both should point in similar direction but with different magnitudes
+        // The direction unit vectors should be the same since focus_dist scales uniformly
+        let near_unit = near_corner.unit();
+        let far_unit = far_corner.unit();
+        assert!(approx_eq(near_unit.x, far_unit.x));
+        assert!(approx_eq(near_unit.y, far_unit.y));
+        assert!(approx_eq(near_unit.z, far_unit.z));
+    }
+
+    #[test]
+    fn camera_wide_aspect_ratio() {
+        let cam = Camera::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.0, 0.0, -1.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            90.0,
+            2.0, // wide
+            0.0,
+            1.0,
+        );
+        let mut rng = rand::thread_rng();
+        let right = cam.get_ray(1.0, 0.5, &mut rng).direction.unit();
+        let top = cam.get_ray(0.5, 1.0, &mut rng).direction.unit();
+        // With 2:1 aspect ratio, horizontal extent should be larger than vertical
+        assert!(right.x.abs() > top.y.abs());
+    }
+
+    #[test]
+    fn camera_aperture_does_not_change_focus_point() {
+        // With DOF, rays from different parts of the lens should converge at the focus plane
+        let focus_dist = 10.0;
+        let cam = Camera::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.0, 0.0, -1.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            90.0,
+            1.0,
+            2.0, // significant aperture
+            focus_dist,
+        );
+        let mut rng = rand::thread_rng();
+
+        // Multiple rays through the center (0.5, 0.5) should converge at the focus point
+        let mut focus_points = Vec::new();
+        for _ in 0..50 {
+            let ray = cam.get_ray(0.5, 0.5, &mut rng);
+            // Find where the ray reaches z ≈ -focus_dist
+            // ray.at(t) = origin + direction * t
+            // We want origin.z + direction.z * t = -focus_dist
+            if ray.direction.z.abs() > 1e-8 {
+                let t = (-focus_dist - ray.origin.z) / ray.direction.z;
+                let point = ray.at(t);
+                focus_points.push(point);
+            }
+        }
+
+        // All focus points should be approximately the same
+        if focus_points.len() >= 2 {
+            for i in 1..focus_points.len() {
+                let dist = (focus_points[i] - focus_points[0]).length();
+                assert!(
+                    dist < 0.5,
+                    "Focus points should converge, but distance was {}",
+                    dist
+                );
+            }
+        }
+    }
 }

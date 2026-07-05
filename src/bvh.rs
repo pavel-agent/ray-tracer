@@ -248,4 +248,170 @@ mod tests {
         // Same x min, so equal along axis 0
         assert_eq!(box_compare(&a, &b, 0), std::cmp::Ordering::Equal);
     }
+
+    // ---- Additional BVH tests ----
+
+    #[test]
+    fn bvh_three_objects() {
+        // Tests the recursive split path (len >= 3)
+        let objects: Vec<Box<dyn Hittable>> = vec![
+            make_sphere(-5.0, 0.0, 0.0, 1.0),
+            make_sphere(0.0, 0.0, 0.0, 1.0),
+            make_sphere(5.0, 0.0, 0.0, 1.0),
+        ];
+        let bvh = BvhNode::new(objects);
+        let bbox = bvh.bounding_box();
+        assert!(bbox.min.x <= -6.0);
+        assert!(bbox.max.x >= 6.0);
+    }
+
+    #[test]
+    fn bvh_hit_each_of_three_spheres() {
+        let objects: Vec<Box<dyn Hittable>> = vec![
+            make_sphere(-5.0, 0.0, -5.0, 1.0),
+            make_sphere(0.0, 0.0, -5.0, 1.0),
+            make_sphere(5.0, 0.0, -5.0, 1.0),
+        ];
+        let bvh = BvhNode::new(objects);
+
+        // Hit left sphere
+        let ray1 = Ray::new(Point3::new(-5.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        assert!(bvh.hit(&ray1, 0.001, f64::INFINITY).is_some());
+
+        // Hit center sphere
+        let ray2 = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        assert!(bvh.hit(&ray2, 0.001, f64::INFINITY).is_some());
+
+        // Hit right sphere
+        let ray3 = Ray::new(Point3::new(5.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        assert!(bvh.hit(&ray3, 0.001, f64::INFINITY).is_some());
+    }
+
+    #[test]
+    fn bvh_single_object_hit_and_miss() {
+        let objects: Vec<Box<dyn Hittable>> = vec![make_sphere(0.0, 0.0, -5.0, 1.0)];
+        let bvh = BvhNode::new(objects);
+
+        // Hit
+        let ray_hit = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        assert!(bvh.hit(&ray_hit, 0.001, f64::INFINITY).is_some());
+
+        // Miss (EmptyHittable path)
+        let ray_miss = Ray::new(Point3::new(0.0, 100.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        assert!(bvh.hit(&ray_miss, 0.001, f64::INFINITY).is_none());
+    }
+
+    #[test]
+    fn bvh_bbox_miss_early_exit() {
+        // A ray that misses the BVH bounding box entirely should return None quickly
+        let objects: Vec<Box<dyn Hittable>> = vec![
+            make_sphere(0.0, 0.0, -5.0, 1.0),
+            make_sphere(2.0, 0.0, -5.0, 1.0),
+        ];
+        let bvh = BvhNode::new(objects);
+        // Ray pointing away from all objects
+        let ray = Ray::new(Point3::new(0.0, 100.0, 100.0), Vec3::new(0.0, 1.0, 1.0));
+        assert!(bvh.hit(&ray, 0.001, f64::INFINITY).is_none());
+    }
+
+    #[test]
+    fn bvh_overlapping_spheres() {
+        // Overlapping spheres - should still find closest hit
+        let objects: Vec<Box<dyn Hittable>> = vec![
+            make_sphere(0.0, 0.0, -3.0, 2.0),
+            make_sphere(0.0, 0.0, -5.0, 2.0),
+        ];
+        let bvh = BvhNode::new(objects);
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        let rec = bvh.hit(&ray, 0.001, f64::INFINITY).unwrap();
+        // Should hit the closer sphere first (at t=1.0, z=-1 is the front of the first sphere)
+        assert!(rec.t < 3.0);
+    }
+
+    #[test]
+    fn box_compare_by_y_axis() {
+        let a = Sphere::new(Point3::new(0.0, -5.0, 0.0), 1.0, test_material());
+        let b = Sphere::new(Point3::new(0.0, 5.0, 0.0), 1.0, test_material());
+        assert_eq!(box_compare(&a, &b, 1), std::cmp::Ordering::Less);
+        assert_eq!(box_compare(&b, &a, 1), std::cmp::Ordering::Greater);
+    }
+
+    #[test]
+    fn box_compare_by_z_axis() {
+        let a = Sphere::new(Point3::new(0.0, 0.0, -5.0), 1.0, test_material());
+        let b = Sphere::new(Point3::new(0.0, 0.0, 5.0), 1.0, test_material());
+        assert_eq!(box_compare(&a, &b, 2), std::cmp::Ordering::Less);
+        assert_eq!(box_compare(&b, &a, 2), std::cmp::Ordering::Greater);
+    }
+
+    #[test]
+    fn bvh_large_scene() {
+        // Stress test with many objects
+        let objects: Vec<Box<dyn Hittable>> = (0..100)
+            .map(|i| {
+                let x = (i % 10) as f64 * 3.0;
+                let z = (i / 10) as f64 * 3.0;
+                make_sphere(x, 0.0, -z, 0.5)
+            })
+            .collect();
+        let bvh = BvhNode::new(objects);
+
+        // Hit a specific sphere
+        let ray = Ray::new(Point3::new(0.0, 0.0, 5.0), Vec3::new(0.0, 0.0, -1.0));
+        assert!(bvh.hit(&ray, 0.001, f64::INFINITY).is_some());
+
+        // Miss everything
+        let ray_miss = Ray::new(Point3::new(-100.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0));
+        assert!(bvh.hit(&ray_miss, 0.001, f64::INFINITY).is_none());
+    }
+
+    #[test]
+    fn bvh_two_objects_ordering() {
+        // Test that two objects are properly ordered regardless of input order
+        let objects_a: Vec<Box<dyn Hittable>> = vec![
+            make_sphere(-5.0, 0.0, -5.0, 1.0),
+            make_sphere(5.0, 0.0, -5.0, 1.0),
+        ];
+        let bvh_a = BvhNode::new(objects_a);
+
+        let objects_b: Vec<Box<dyn Hittable>> = vec![
+            make_sphere(5.0, 0.0, -5.0, 1.0),
+            make_sphere(-5.0, 0.0, -5.0, 1.0),
+        ];
+        let bvh_b = BvhNode::new(objects_b);
+
+        // Both should have the same bounding box
+        let bbox_a = bvh_a.bounding_box();
+        let bbox_b = bvh_b.bounding_box();
+        assert!(bbox_a.min.x <= -6.0 && bbox_b.min.x <= -6.0);
+        assert!(bbox_a.max.x >= 6.0 && bbox_b.max.x >= 6.0);
+
+        // Both should hit the same ray
+        let ray = Ray::new(Point3::new(-5.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        assert!(bvh_a.hit(&ray, 0.001, f64::INFINITY).is_some());
+        assert!(bvh_b.hit(&ray, 0.001, f64::INFINITY).is_some());
+    }
+
+    #[test]
+    fn empty_hittable_never_hits() {
+        let bbox = crate::ray::Aabb::new(
+            Point3::new(-1.0, -1.0, -1.0),
+            Point3::new(1.0, 1.0, 1.0),
+        );
+        let empty = EmptyHittable { bbox };
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        assert!(empty.hit(&ray, 0.001, f64::INFINITY).is_none());
+    }
+
+    #[test]
+    fn empty_hittable_returns_bbox() {
+        let bbox = crate::ray::Aabb::new(
+            Point3::new(-2.0, -3.0, -4.0),
+            Point3::new(2.0, 3.0, 4.0),
+        );
+        let empty = EmptyHittable { bbox };
+        let returned_bbox = empty.bounding_box();
+        assert!((returned_bbox.min.x - (-2.0)).abs() < 1e-10);
+        assert!((returned_bbox.max.z - 4.0).abs() < 1e-10);
+    }
 }

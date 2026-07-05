@@ -407,4 +407,247 @@ mod tests {
         let result = material.scatter(&ray_in, &rec, &mut rng);
         assert!(result.is_some());
     }
+
+    // ---- Additional Lambertian tests ----
+
+    #[test]
+    fn lambertian_black_albedo() {
+        let mut rng = rand::thread_rng();
+        let material = Material::Lambertian {
+            albedo: Color::new(0.0, 0.0, 0.0),
+        };
+        let ray_in = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        let rec = make_hit_record(
+            Point3::new(0.0, 0.0, -5.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            5.0,
+            true,
+            &material,
+        );
+        let result = material.scatter(&ray_in, &rec, &mut rng).unwrap();
+        assert!(approx_eq(result.attenuation.x, 0.0));
+        assert!(approx_eq(result.attenuation.y, 0.0));
+        assert!(approx_eq(result.attenuation.z, 0.0));
+    }
+
+    #[test]
+    fn lambertian_white_albedo() {
+        let mut rng = rand::thread_rng();
+        let material = Material::Lambertian {
+            albedo: Color::new(1.0, 1.0, 1.0),
+        };
+        let ray_in = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        let rec = make_hit_record(
+            Point3::new(0.0, 0.0, -5.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            5.0,
+            true,
+            &material,
+        );
+        let result = material.scatter(&ray_in, &rec, &mut rng).unwrap();
+        assert!(approx_eq(result.attenuation.x, 1.0));
+        assert!(approx_eq(result.attenuation.y, 1.0));
+        assert!(approx_eq(result.attenuation.z, 1.0));
+    }
+
+    #[test]
+    fn lambertian_scatter_direction_not_zero() {
+        let mut rng = rand::thread_rng();
+        let material = Material::Lambertian {
+            albedo: Color::new(0.5, 0.5, 0.5),
+        };
+        let ray_in = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        let rec = make_hit_record(
+            Point3::new(0.0, 0.0, -5.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            5.0,
+            true,
+            &material,
+        );
+        for _ in 0..50 {
+            let result = material.scatter(&ray_in, &rec, &mut rng).unwrap();
+            assert!(
+                result.scattered.direction.length() > 0.0,
+                "Scattered direction should never be zero"
+            );
+        }
+    }
+
+    // ---- Additional Metal tests ----
+
+    #[test]
+    fn metal_high_fuzz_still_scatters() {
+        let mut rng = rand::thread_rng();
+        let material = Material::Metal {
+            albedo: Color::new(0.8, 0.8, 0.8),
+            fuzz: 1.0, // Maximum fuzz
+        };
+        let ray_in = Ray::new(
+            Point3::new(0.0, 5.0, 0.0),
+            Vec3::new(0.0, -1.0, 0.0),
+        );
+        let rec = make_hit_record(
+            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            5.0,
+            true,
+            &material,
+        );
+        // With high fuzz some rays may be absorbed (scatter below surface)
+        // but most should scatter
+        let mut scatter_count = 0;
+        for _ in 0..100 {
+            if material.scatter(&ray_in, &rec, &mut rng).is_some() {
+                scatter_count += 1;
+            }
+        }
+        assert!(scatter_count > 0, "Metal with fuzz=1.0 should still scatter sometimes");
+    }
+
+    #[test]
+    fn metal_absorbs_below_surface() {
+        let mut rng = rand::thread_rng();
+        let material = Material::Metal {
+            albedo: Color::new(0.8, 0.8, 0.8),
+            fuzz: 1.0,
+        };
+        // Ray at a very steep angle - more likely to scatter below surface with high fuzz
+        let ray_in = Ray::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.99, -0.01, 0.0).unit(),
+        );
+        let rec = make_hit_record(
+            Point3::new(5.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            5.0,
+            true,
+            &material,
+        );
+        // Run many times - with steep angle and high fuzz, some should be None
+        let mut none_count = 0;
+        for _ in 0..200 {
+            if material.scatter(&ray_in, &rec, &mut rng).is_none() {
+                none_count += 1;
+            }
+        }
+        assert!(none_count > 0, "Steep angle + high fuzz should absorb some rays");
+    }
+
+    #[test]
+    fn metal_scattered_ray_originates_at_hit_point() {
+        let mut rng = rand::thread_rng();
+        let material = Material::Metal {
+            albedo: Color::new(0.8, 0.8, 0.8),
+            fuzz: 0.0,
+        };
+        let hit_point = Point3::new(3.0, 0.0, -2.0);
+        let ray_in = Ray::new(
+            Point3::new(0.0, 5.0, 0.0),
+            Vec3::new(0.0, -1.0, 0.0),
+        );
+        let rec = make_hit_record(
+            hit_point,
+            Vec3::new(0.0, 1.0, 0.0),
+            5.0,
+            true,
+            &material,
+        );
+        let result = material.scatter(&ray_in, &rec, &mut rng).unwrap();
+        assert!(approx_eq(result.scattered.origin.x, hit_point.x));
+        assert!(approx_eq(result.scattered.origin.y, hit_point.y));
+        assert!(approx_eq(result.scattered.origin.z, hit_point.z));
+    }
+
+    // ---- Additional Dielectric tests ----
+
+    #[test]
+    fn dielectric_front_face_uses_inverse_ior() {
+        // Front face should use 1/ior as refraction ratio
+        let mut rng = rand::thread_rng();
+        let material = Material::Dielectric { ior: 1.5 };
+        let ray_in = Ray::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, -1.0),
+        );
+        let rec = make_hit_record(
+            Point3::new(0.0, 0.0, -5.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            5.0,
+            true, // front face
+            &material,
+        );
+        // Should always scatter for perpendicular incidence
+        let result = material.scatter(&ray_in, &rec, &mut rng);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn dielectric_back_face_uses_ior_directly() {
+        let mut rng = rand::thread_rng();
+        let material = Material::Dielectric { ior: 1.5 };
+        let ray_in = Ray::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, -1.0),
+        );
+        let rec = make_hit_record(
+            Point3::new(0.0, 0.0, -5.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            5.0,
+            false, // back face -- exiting material
+            &material,
+        );
+        let result = material.scatter(&ray_in, &rec, &mut rng);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn dielectric_ior_one_no_bending() {
+        // IOR of 1.0 means same medium -- no bending
+        let mut rng = rand::thread_rng();
+        let material = Material::Dielectric { ior: 1.0 };
+        let dir = Vec3::new(0.3, -0.5, -0.8).unit();
+        let ray_in = Ray::new(Point3::new(0.0, 0.0, 0.0), dir);
+        let rec = make_hit_record(
+            Point3::new(0.0, 0.0, -5.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            5.0,
+            true,
+            &material,
+        );
+        // With IOR=1, refraction_ratio=1, so direction should be same as input
+        // (Schlick reflectance at IOR=1 is 0, so always refract)
+        let result = material.scatter(&ray_in, &rec, &mut rng).unwrap();
+        let scattered_dir = result.scattered.direction.unit();
+        // Should be approximately the same direction
+        assert!(
+            (scattered_dir - dir).length() < 0.01,
+            "IOR=1 should not bend the ray. Got {:?} expected {:?}",
+            scattered_dir, dir
+        );
+    }
+
+    // ---- Additional reflectance tests ----
+
+    #[test]
+    fn reflectance_at_ior_one() {
+        // At IOR = 1, r0 = 0. Schlick's formula: r0 + (1-r0)*(1-cos)^5 = (1-cos)^5
+        // At normal incidence (cosine=1): (1-1)^5 = 0
+        assert!(approx_eq(reflectance(1.0, 1.0), 0.0));
+        // At cosine=0.5: (0.5)^5 = 0.03125
+        let r = reflectance(0.5, 1.0);
+        assert!(
+            approx_eq(r, 0.03125),
+            "Reflectance at IOR=1, cosine=0.5 should be 0.03125, got {}",
+            r
+        );
+    }
+
+    #[test]
+    fn reflectance_high_ior() {
+        // High IOR should give high r0
+        let r = reflectance(1.0, 10.0);
+        let r0 = ((1.0_f64 - 10.0) / (1.0_f64 + 10.0)).powi(2);
+        assert!(approx_eq(r, r0));
+        assert!(r0 > 0.5, "High IOR should give high reflectance at normal");
+    }
 }

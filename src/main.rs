@@ -144,3 +144,243 @@ fn write_png(path: &str, width: u32, height: u32, samples: u32, pixels: &[Vec<Co
 
     img.save(path).expect("Failed to save PNG");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use hittable::{HittableList, Sphere};
+    use material::Material;
+    use ray::{Point3, Vec3};
+
+    const EPSILON: f64 = 1e-6;
+
+    fn approx_eq(a: f64, b: f64) -> bool {
+        (a - b).abs() < EPSILON
+    }
+
+    fn vec3_approx_eq(a: Vec3, b: Vec3) -> bool {
+        approx_eq(a.x, b.x) && approx_eq(a.y, b.y) && approx_eq(a.z, b.z)
+    }
+
+    fn test_material() -> Arc<Material> {
+        Arc::new(Material::Lambertian {
+            albedo: Color::new(0.5, 0.5, 0.5),
+        })
+    }
+
+    // ---- clamp tests ----
+
+    #[test]
+    fn clamp_within_range() {
+        assert!(approx_eq(clamp(0.5, 0.0, 1.0), 0.5));
+    }
+
+    #[test]
+    fn clamp_below_min() {
+        assert!(approx_eq(clamp(-1.0, 0.0, 1.0), 0.0));
+    }
+
+    #[test]
+    fn clamp_above_max() {
+        assert!(approx_eq(clamp(2.0, 0.0, 1.0), 1.0));
+    }
+
+    #[test]
+    fn clamp_at_min_boundary() {
+        assert!(approx_eq(clamp(0.0, 0.0, 1.0), 0.0));
+    }
+
+    #[test]
+    fn clamp_at_max_boundary() {
+        assert!(approx_eq(clamp(1.0, 0.0, 1.0), 1.0));
+    }
+
+    #[test]
+    fn clamp_negative_range() {
+        assert!(approx_eq(clamp(-0.5, -1.0, 0.0), -0.5));
+        assert!(approx_eq(clamp(-2.0, -1.0, 0.0), -1.0));
+        assert!(approx_eq(clamp(1.0, -1.0, 0.0), 0.0));
+    }
+
+    // ---- ray_color tests ----
+
+    #[test]
+    fn ray_color_returns_black_at_depth_zero() {
+        let mut rng = rand::thread_rng();
+        let world = HittableList::new();
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        let color = ray_color(&ray, &world, 0, &mut rng);
+        assert!(vec3_approx_eq(color, Color::new(0.0, 0.0, 0.0)));
+    }
+
+    #[test]
+    fn ray_color_returns_sky_when_no_hit() {
+        let mut rng = rand::thread_rng();
+        let world = HittableList::new();
+        // Ray pointing straight up
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0));
+        let color = ray_color(&ray, &world, 10, &mut rng);
+        // unit_dir.y = 1.0, t = 0.5 * (1.0 + 1.0) = 1.0
+        // color = white * 0.0 + blue * 1.0 = (0.5, 0.7, 1.0)
+        assert!(approx_eq(color.x, 0.5));
+        assert!(approx_eq(color.y, 0.7));
+        assert!(approx_eq(color.z, 1.0));
+    }
+
+    #[test]
+    fn ray_color_returns_white_for_straight_down() {
+        let mut rng = rand::thread_rng();
+        let world = HittableList::new();
+        // Ray pointing straight down
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, -1.0, 0.0));
+        let color = ray_color(&ray, &world, 10, &mut rng);
+        // unit_dir.y = -1.0, t = 0.5 * (-1.0 + 1.0) = 0.0
+        // color = white * 1.0 + blue * 0.0 = (1.0, 1.0, 1.0)
+        assert!(approx_eq(color.x, 1.0));
+        assert!(approx_eq(color.y, 1.0));
+        assert!(approx_eq(color.z, 1.0));
+    }
+
+    #[test]
+    fn ray_color_sky_gradient_horizontal() {
+        let mut rng = rand::thread_rng();
+        let world = HittableList::new();
+        // Ray pointing horizontal (y=0), unit_dir.y = 0.0, t = 0.5
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        let color = ray_color(&ray, &world, 10, &mut rng);
+        // t = 0.5 * (0.0 + 1.0) = 0.5
+        // color = white * 0.5 + (0.5, 0.7, 1.0) * 0.5 = (0.75, 0.85, 1.0)
+        assert!(approx_eq(color.x, 0.75));
+        assert!(approx_eq(color.y, 0.85));
+        assert!(approx_eq(color.z, 1.0));
+    }
+
+    #[test]
+    fn ray_color_hits_sphere() {
+        let mut rng = rand::thread_rng();
+        let mut world = HittableList::new();
+        world.add(Box::new(Sphere::new(
+            Point3::new(0.0, 0.0, -5.0),
+            1.0,
+            test_material(),
+        )));
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        let color = ray_color(&ray, &world, 5, &mut rng);
+        // Should not be sky color -- it should be a scattered color
+        // The lambertian material will scatter, so we just check it's not pure sky
+        let sky_color = Color::new(0.75, 0.85, 1.0);
+        assert!(
+            !vec3_approx_eq(color, sky_color),
+            "Color should differ from sky when hitting a sphere"
+        );
+    }
+
+    #[test]
+    fn ray_color_misses_sphere() {
+        let mut rng = rand::thread_rng();
+        let mut world = HittableList::new();
+        world.add(Box::new(Sphere::new(
+            Point3::new(100.0, 100.0, -5.0),
+            1.0,
+            test_material(),
+        )));
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        let color = ray_color(&ray, &world, 5, &mut rng);
+        // Should be sky color since we miss the sphere
+        let expected = Color::new(0.75, 0.85, 1.0);
+        assert!(vec3_approx_eq(color, expected));
+    }
+
+    // ---- write_ppm tests ----
+
+    #[test]
+    fn write_ppm_creates_valid_file() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_output.ppm");
+        let path_str = path.to_str().unwrap();
+
+        let pixels = vec![
+            vec![Color::new(1.0, 0.0, 0.0), Color::new(0.0, 1.0, 0.0)],
+            vec![Color::new(0.0, 0.0, 1.0), Color::new(1.0, 1.0, 1.0)],
+        ];
+        write_ppm(path_str, 2, 2, 1, &pixels);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.starts_with("P3\n2 2\n255\n"));
+        // Clean up
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn write_ppm_gamma_correction() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_gamma.ppm");
+        let path_str = path.to_str().unwrap();
+
+        // With 1 sample, a pixel value of 0.25 should be sqrt(0.25) = 0.5 after gamma
+        // 0.5 * 256 = 128
+        let pixels = vec![vec![Color::new(0.25, 0.25, 0.25)]];
+        write_ppm(path_str, 1, 1, 1, &pixels);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("128 128 128"), "PPM should have gamma-corrected values, got: {}", content);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn write_ppm_multisampled() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_multisample.ppm");
+        let path_str = path.to_str().unwrap();
+
+        // 4 samples, accumulated color = (4.0, 4.0, 4.0), scale = 0.25, scaled = 1.0
+        // sqrt(1.0) = 1.0, clamped to 0.999, * 256 = 255
+        let pixels = vec![vec![Color::new(4.0, 4.0, 4.0)]];
+        write_ppm(path_str, 1, 1, 4, &pixels);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("255 255 255"), "Max value should clamp to 255, got: {}", content);
+        std::fs::remove_file(&path).ok();
+    }
+
+    // ---- write_png tests ----
+
+    #[test]
+    fn write_png_creates_valid_file() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_output.png");
+        let path_str = path.to_str().unwrap();
+
+        let pixels = vec![
+            vec![Color::new(1.0, 0.0, 0.0), Color::new(0.0, 1.0, 0.0)],
+            vec![Color::new(0.0, 0.0, 1.0), Color::new(1.0, 1.0, 1.0)],
+        ];
+        write_png(path_str, 2, 2, 1, &pixels);
+
+        // Verify the file exists and is a valid PNG
+        let img = image::open(&path).expect("Should be a valid PNG");
+        assert_eq!(img.width(), 2);
+        assert_eq!(img.height(), 2);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn write_png_pixel_values() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_pixel_values.png");
+        let path_str = path.to_str().unwrap();
+
+        // Pure red pixel (1 sample)
+        let pixels = vec![vec![Color::new(1.0, 0.0, 0.0)]];
+        write_png(path_str, 1, 1, 1, &pixels);
+
+        let img = image::open(&path).unwrap().to_rgb8();
+        let pixel = img.get_pixel(0, 0);
+        // sqrt(1.0) = 1.0, clamped to 0.999, * 256 = 255
+        assert_eq!(pixel[0], 255); // Red
+        assert_eq!(pixel[1], 0);   // Green
+        assert_eq!(pixel[2], 0);   // Blue
+        std::fs::remove_file(&path).ok();
+    }
+}

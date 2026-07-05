@@ -726,4 +726,264 @@ mod tests {
         assert!(vec3_approx_eq(s.min, a.min));
         assert!(vec3_approx_eq(s.max, a.max));
     }
+
+    // ---- Additional Vec3 edge cases ----
+
+    #[test]
+    fn vec3_near_zero_boundary() {
+        // Exactly at the threshold
+        let v = Vec3::new(1e-8, 1e-8, 1e-8);
+        // These are not strictly less than 1e-8, so should be false
+        assert!(!v.near_zero());
+    }
+
+    #[test]
+    fn vec3_near_zero_single_component_large() {
+        let v = Vec3::new(0.0, 0.0, 0.1);
+        assert!(!v.near_zero());
+    }
+
+    #[test]
+    fn vec3_reflect_normal_incidence() {
+        // Ray hitting head-on
+        let v = Vec3::new(0.0, -1.0, 0.0);
+        let n = Vec3::new(0.0, 1.0, 0.0);
+        let reflected = v.reflect(n);
+        assert!(vec3_approx_eq(reflected, Vec3::new(0.0, 1.0, 0.0)));
+    }
+
+    #[test]
+    fn vec3_reflect_preserves_length() {
+        let v = Vec3::new(1.0, -1.0, 0.5);
+        let n = Vec3::new(0.0, 1.0, 0.0);
+        let reflected = v.reflect(n);
+        assert!(approx_eq(v.length(), reflected.length()));
+    }
+
+    #[test]
+    fn vec3_refract_perpendicular_any_ior() {
+        // Perpendicular incidence should pass straight through regardless of IOR
+        let v = Vec3::new(0.0, -1.0, 0.0);
+        let n = Vec3::new(0.0, 1.0, 0.0);
+        for ior in [0.5, 1.0, 1.5, 2.0, 3.0] {
+            let refracted = v.refract(n, ior);
+            assert!(vec3_approx_eq(refracted, v), "Failed for ior={}", ior);
+        }
+    }
+
+    #[test]
+    fn vec3_cross_self_is_zero() {
+        let v = Vec3::new(3.0, 7.0, 11.0);
+        let cross = v.cross(v);
+        assert!(approx_eq(cross.length(), 0.0));
+    }
+
+    #[test]
+    fn vec3_dot_self_equals_length_squared() {
+        let v = Vec3::new(3.0, 4.0, 5.0);
+        assert!(approx_eq(v.dot(v), v.length_squared()));
+    }
+
+    #[test]
+    fn vec3_unit_of_unit_is_unit() {
+        let v = Vec3::new(3.0, 4.0, 0.0).unit();
+        let uu = v.unit();
+        assert!(approx_eq(uu.length(), 1.0));
+        assert!(vec3_approx_eq(v, uu));
+    }
+
+    #[test]
+    fn vec3_neg_neg_is_original() {
+        let v = Vec3::new(1.0, -2.0, 3.0);
+        assert!(vec3_approx_eq(-(-v), v));
+    }
+
+    #[test]
+    fn vec3_sub_self_is_zero() {
+        let v = Vec3::new(1.0, 2.0, 3.0);
+        let result = v - v;
+        assert!(vec3_approx_eq(result, Vec3::new(0.0, 0.0, 0.0)));
+    }
+
+    #[test]
+    fn vec3_mul_zero_scalar() {
+        let v = Vec3::new(1.0, 2.0, 3.0);
+        assert!(vec3_approx_eq(v * 0.0, Vec3::new(0.0, 0.0, 0.0)));
+    }
+
+    #[test]
+    fn vec3_mul_one_scalar() {
+        let v = Vec3::new(1.0, 2.0, 3.0);
+        assert!(vec3_approx_eq(v * 1.0, v));
+    }
+
+    #[test]
+    fn vec3_mul_negative_scalar() {
+        let v = Vec3::new(1.0, 2.0, 3.0);
+        assert!(vec3_approx_eq(v * -1.0, Vec3::new(-1.0, -2.0, -3.0)));
+    }
+
+    #[test]
+    fn vec3_add_commutative() {
+        let a = Vec3::new(1.0, 2.0, 3.0);
+        let b = Vec3::new(4.0, 5.0, 6.0);
+        assert!(vec3_approx_eq(a + b, b + a));
+    }
+
+    #[test]
+    fn vec3_random_values_in_range() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..100 {
+            let v = Vec3::random(&mut rng);
+            assert!(v.x >= 0.0 && v.x < 1.0);
+            assert!(v.y >= 0.0 && v.y < 1.0);
+            assert!(v.z >= 0.0 && v.z < 1.0);
+        }
+    }
+
+    #[test]
+    fn vec3_debug_format() {
+        let v = Vec3::new(1.0, 2.0, 3.0);
+        let debug_str = format!("{:?}", v);
+        assert!(debug_str.contains("1.0"));
+        assert!(debug_str.contains("2.0"));
+        assert!(debug_str.contains("3.0"));
+    }
+
+    // ---- Additional Ray tests ----
+
+    #[test]
+    fn ray_at_negative_t() {
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0));
+        assert!(vec3_approx_eq(ray.at(-2.0), Point3::new(-2.0, 0.0, 0.0)));
+    }
+
+    #[test]
+    fn ray_clone_and_copy() {
+        let ray = Ray::new(Point3::new(1.0, 2.0, 3.0), Vec3::new(4.0, 5.0, 6.0));
+        let ray2 = ray; // Copy
+        let ray3 = ray.clone(); // Clone
+        assert!(vec3_approx_eq(ray.origin, ray2.origin));
+        assert!(vec3_approx_eq(ray.direction, ray2.direction));
+        assert!(vec3_approx_eq(ray.origin, ray3.origin));
+        assert!(vec3_approx_eq(ray.direction, ray3.direction));
+    }
+
+    #[test]
+    fn ray_debug_format() {
+        let ray = Ray::new(Point3::new(1.0, 2.0, 3.0), Vec3::new(0.0, 0.0, -1.0));
+        let debug_str = format!("{:?}", ray);
+        assert!(debug_str.contains("Ray"));
+    }
+
+    // ---- Additional AABB tests ----
+
+    #[test]
+    fn aabb_hit_flat_box() {
+        // A very thin AABB (like a plane-ish bounding box)
+        let aabb = Aabb::new(
+            Point3::new(-1.0, -0.001, -1.0),
+            Point3::new(1.0, 0.001, 1.0),
+        );
+        let ray = Ray::new(Point3::new(0.0, 5.0, 0.0), Vec3::new(0.0, -1.0, 0.0));
+        assert!(aabb.hit(&ray, 0.0, f64::INFINITY));
+    }
+
+    #[test]
+    fn aabb_miss_parallel_to_face() {
+        // Ray parallel to a face but outside the box
+        let aabb = Aabb::new(Point3::new(-1.0, -1.0, -1.0), Point3::new(1.0, 1.0, 1.0));
+        let ray = Ray::new(Point3::new(0.0, 5.0, 0.0), Vec3::new(1.0, 0.0, 0.0));
+        assert!(!aabb.hit(&ray, 0.0, f64::INFINITY));
+    }
+
+    #[test]
+    fn aabb_hit_all_three_axes() {
+        let aabb = Aabb::new(Point3::new(-1.0, -1.0, -1.0), Point3::new(1.0, 1.0, 1.0));
+        // Hit along x-axis
+        let ray_x = Ray::new(Point3::new(-5.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0));
+        assert!(aabb.hit(&ray_x, 0.0, f64::INFINITY));
+        // Hit along y-axis
+        let ray_y = Ray::new(Point3::new(0.0, -5.0, 0.0), Vec3::new(0.0, 1.0, 0.0));
+        assert!(aabb.hit(&ray_y, 0.0, f64::INFINITY));
+        // Hit along z-axis
+        let ray_z = Ray::new(Point3::new(0.0, 0.0, -5.0), Vec3::new(0.0, 0.0, 1.0));
+        assert!(aabb.hit(&ray_z, 0.0, f64::INFINITY));
+    }
+
+    #[test]
+    fn aabb_surrounding_box_with_empty() {
+        let a = Aabb::new(Point3::new(-1.0, -1.0, -1.0), Point3::new(1.0, 1.0, 1.0));
+        let empty = Aabb::empty();
+        let s = Aabb::surrounding_box(a, empty);
+        // surrounding_box of a valid box and empty should contain the valid box
+        assert!(s.min.x <= a.min.x);
+        assert!(s.max.x >= a.max.x);
+    }
+
+    #[test]
+    fn aabb_debug_format() {
+        let aabb = Aabb::new(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 1.0, 1.0));
+        let debug_str = format!("{:?}", aabb);
+        assert!(debug_str.contains("Aabb"));
+    }
+
+    #[test]
+    fn aabb_clone_and_copy() {
+        let aabb = Aabb::new(Point3::new(-1.0, -2.0, -3.0), Point3::new(1.0, 2.0, 3.0));
+        let aabb2 = aabb; // Copy
+        let aabb3 = aabb.clone(); // Clone
+        assert!(vec3_approx_eq(aabb.min, aabb2.min));
+        assert!(vec3_approx_eq(aabb.max, aabb2.max));
+        assert!(vec3_approx_eq(aabb.min, aabb3.min));
+        assert!(vec3_approx_eq(aabb.max, aabb3.max));
+    }
+
+    // ---- Type alias tests ----
+
+    #[test]
+    fn color_is_vec3() {
+        let c: Color = Color::new(0.5, 0.3, 0.1);
+        assert!(approx_eq(c.x, 0.5));
+        assert!(approx_eq(c.y, 0.3));
+        assert!(approx_eq(c.z, 0.1));
+    }
+
+    #[test]
+    fn point3_is_vec3() {
+        let p: Point3 = Point3::new(10.0, 20.0, 30.0);
+        assert!(approx_eq(p.x, 10.0));
+        assert!(approx_eq(p.y, 20.0));
+        assert!(approx_eq(p.z, 30.0));
+    }
+
+    // ---- Distributive / algebraic properties ----
+
+    #[test]
+    fn vec3_mul_distributes_over_add() {
+        let a = Vec3::new(1.0, 2.0, 3.0);
+        let b = Vec3::new(4.0, 5.0, 6.0);
+        let s = 2.5;
+        assert!(vec3_approx_eq((a + b) * s, a * s + b * s));
+    }
+
+    #[test]
+    fn vec3_div_is_inverse_of_mul() {
+        let v = Vec3::new(1.0, 2.0, 3.0);
+        let s = 3.0;
+        assert!(vec3_approx_eq((v * s) / s, v));
+    }
+
+    #[test]
+    fn vec3_add_identity() {
+        let v = Vec3::new(1.0, 2.0, 3.0);
+        let zero = Vec3::new(0.0, 0.0, 0.0);
+        assert!(vec3_approx_eq(v + zero, v));
+    }
+
+    #[test]
+    fn vec3_neg_is_mul_minus_one() {
+        let v = Vec3::new(1.0, 2.0, 3.0);
+        assert!(vec3_approx_eq(-v, v * -1.0));
+    }
 }

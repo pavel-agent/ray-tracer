@@ -407,4 +407,230 @@ mod tests {
         assert!(bbox.min.x <= -6.0);
         assert!(bbox.max.x >= 6.0);
     }
+
+    // ---- Additional Sphere tests ----
+
+    #[test]
+    fn sphere_hit_tangent_ray() {
+        // Ray that just barely grazes the sphere (tangent)
+        let sphere = Sphere::new(Point3::new(0.0, 1.0, -5.0), 1.0, test_material());
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        // The ray goes along z-axis at y=0, sphere center is at y=1 with radius 1
+        // Distance from ray to center = 1.0 = radius, so tangent
+        let hit = sphere.hit(&ray, 0.001, f64::INFINITY);
+        // Tangent ray should still hit (discriminant = 0)
+        assert!(hit.is_some());
+    }
+
+    #[test]
+    fn sphere_hit_behind_ray() {
+        // Sphere is behind the ray origin
+        let sphere = Sphere::new(Point3::new(0.0, 0.0, 5.0), 1.0, test_material());
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        // Ray goes in -z direction, sphere is at z=5, so behind origin
+        let hit = sphere.hit(&ray, 0.001, f64::INFINITY);
+        assert!(hit.is_none());
+    }
+
+    #[test]
+    fn sphere_hit_second_root_in_range() {
+        // First root is before t_min, but second root is in range
+        let sphere = Sphere::new(Point3::new(0.0, 0.0, 0.0), 2.0, test_material());
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0));
+        // Origin is at center. First root = -2 (behind), second root = +2 (in front).
+        // With t_min=0.001, first root is rejected, second is accepted
+        let hit = sphere.hit(&ray, 0.001, f64::INFINITY);
+        assert!(hit.is_some());
+        let rec = hit.unwrap();
+        assert!(approx_eq(rec.t, 2.0));
+    }
+
+    #[test]
+    fn sphere_hit_both_roots_outside_range() {
+        // Both roots are outside the t range
+        let sphere = Sphere::new(Point3::new(0.0, 0.0, -5.0), 1.0, test_material());
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        // Roots at t=4 and t=6, but restrict to t=7..10
+        let hit = sphere.hit(&ray, 7.0, 10.0);
+        assert!(hit.is_none());
+    }
+
+    #[test]
+    fn sphere_bounding_box_unit_sphere_at_origin() {
+        let sphere = Sphere::new(Point3::new(0.0, 0.0, 0.0), 1.0, test_material());
+        let bbox = sphere.bounding_box();
+        assert!(vec3_approx_eq(bbox.min, Point3::new(-1.0, -1.0, -1.0)));
+        assert!(vec3_approx_eq(bbox.max, Point3::new(1.0, 1.0, 1.0)));
+    }
+
+    #[test]
+    fn sphere_hit_oblique_angle() {
+        let sphere = Sphere::new(Point3::new(0.0, 0.0, -5.0), 1.0, test_material());
+        let ray = Ray::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.1, 0.0, -1.0).unit(),
+        );
+        let hit = sphere.hit(&ray, 0.001, f64::INFINITY);
+        assert!(hit.is_some());
+        let rec = hit.unwrap();
+        // Normal should be unit length
+        assert!(approx_eq(rec.normal.length(), 1.0));
+    }
+
+    // ---- Additional Plane tests ----
+
+    #[test]
+    fn plane_hit_t_range_excluded() {
+        let plane = Plane::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            test_material(),
+        );
+        let ray = Ray::new(Point3::new(0.0, 5.0, 0.0), Vec3::new(0.0, -1.0, 0.0));
+        // Hit would be at t=5, but restrict range to t=0..3
+        let hit = plane.hit(&ray, 0.001, 3.0);
+        assert!(hit.is_none());
+    }
+
+    #[test]
+    fn plane_hit_at_oblique_angle() {
+        let plane = Plane::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            test_material(),
+        );
+        let ray = Ray::new(
+            Point3::new(3.0, 5.0, 0.0),
+            Vec3::new(-1.0, -1.0, 0.0).unit(),
+        );
+        let hit = plane.hit(&ray, 0.001, f64::INFINITY);
+        assert!(hit.is_some());
+        let rec = hit.unwrap();
+        // Hit point should be on the plane (y ≈ 0)
+        assert!(approx_eq(rec.point.y, 0.0));
+    }
+
+    #[test]
+    fn plane_hit_normal_is_consistent() {
+        let plane = Plane::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            test_material(),
+        );
+        // Ray from above - front face
+        let ray_above = Ray::new(Point3::new(0.0, 5.0, 0.0), Vec3::new(0.0, -1.0, 0.0));
+        let rec_above = plane.hit(&ray_above, 0.001, f64::INFINITY).unwrap();
+        assert!(rec_above.front_face);
+        assert!(approx_eq(rec_above.normal.y, 1.0)); // Normal points up (toward ray)
+
+        // Ray from below - back face
+        let ray_below = Ray::new(Point3::new(0.0, -5.0, 0.0), Vec3::new(0.0, 1.0, 0.0));
+        let rec_below = plane.hit(&ray_below, 0.001, f64::INFINITY).unwrap();
+        assert!(!rec_below.front_face);
+        assert!(approx_eq(rec_below.normal.y, -1.0)); // Normal flipped
+    }
+
+    #[test]
+    fn plane_with_non_axis_aligned_normal() {
+        let plane = Plane::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 1.0, 0.0), // 45 degree normal (will be normalized)
+            test_material(),
+        );
+        // Ray perpendicular to the tilted normal
+        let ray = Ray::new(Point3::new(5.0, 5.0, 0.0), Vec3::new(-1.0, -1.0, 0.0).unit());
+        let hit = plane.hit(&ray, 0.001, f64::INFINITY);
+        assert!(hit.is_some());
+    }
+
+    // ---- Additional HittableList tests ----
+
+    #[test]
+    fn hittable_list_bounding_box_empty() {
+        let list = HittableList::new();
+        let bbox = list.bounding_box();
+        // Empty list should return empty bounding box
+        assert_eq!(bbox.min.x, f64::INFINITY);
+        assert_eq!(bbox.max.x, f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn hittable_list_miss_all() {
+        let mut list = HittableList::new();
+        list.add(Box::new(Sphere::new(
+            Point3::new(100.0, 0.0, 0.0),
+            1.0,
+            test_material(),
+        )));
+        list.add(Box::new(Sphere::new(
+            Point3::new(-100.0, 0.0, 0.0),
+            1.0,
+            test_material(),
+        )));
+        // Ray that misses both spheres
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0));
+        assert!(list.hit(&ray, 0.001, f64::INFINITY).is_none());
+    }
+
+    #[test]
+    fn hittable_list_multiple_objects_same_direction() {
+        let mut list = HittableList::new();
+        // Three spheres along the z-axis
+        list.add(Box::new(Sphere::new(
+            Point3::new(0.0, 0.0, -3.0),
+            0.5,
+            test_material(),
+        )));
+        list.add(Box::new(Sphere::new(
+            Point3::new(0.0, 0.0, -6.0),
+            0.5,
+            test_material(),
+        )));
+        list.add(Box::new(Sphere::new(
+            Point3::new(0.0, 0.0, -9.0),
+            0.5,
+            test_material(),
+        )));
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        let rec = list.hit(&ray, 0.001, f64::INFINITY).unwrap();
+        // Should hit closest at z=-3, so t ≈ 2.5
+        assert!(rec.t < 4.0);
+        assert!(rec.t > 1.0);
+    }
+
+    #[test]
+    fn hittable_list_with_plane_and_sphere() {
+        let mut list = HittableList::new();
+        list.add(Box::new(Plane::new(
+            Point3::new(0.0, -1.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            test_material(),
+        )));
+        list.add(Box::new(Sphere::new(
+            Point3::new(0.0, 0.0, -5.0),
+            1.0,
+            test_material(),
+        )));
+
+        // Ray that hits the sphere (not the plane)
+        let ray = Ray::new(Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -1.0));
+        let rec = list.hit(&ray, 0.001, f64::INFINITY).unwrap();
+        // Should hit sphere, not plane (plane is at y=-1, ray goes along z)
+        assert!(rec.t < 6.0);
+    }
+
+    // ---- HitRecord set_face_normal edge cases ----
+
+    #[test]
+    fn hit_record_face_normal_with_diagonal_ray() {
+        let ray = Ray::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 1.0, 1.0),
+        );
+        let outward_normal = Vec3::new(-1.0, 0.0, 0.0);
+        let (normal, front_face) = HitRecord::set_face_normal(&ray, outward_normal);
+        // direction dot outward_normal = 1.0 * -1.0 = -1.0 < 0 => front face
+        assert!(front_face);
+        assert!(vec3_approx_eq(normal, outward_normal));
+    }
 }
