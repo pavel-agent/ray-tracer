@@ -1,7 +1,7 @@
 # Ray Tracer
 
-[![CI](https://github.com/ai-pavel/ray-tracer/actions/workflows/ci.yml/badge.svg)](https://github.com/ai-pavel/ray-tracer/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/ai-pavel/ray-tracer/branch/main/graph/badge.svg)](https://codecov.io/gh/ai-pavel/ray-tracer)
+[![CI](https://github.com/ai-pavel/photon/actions/workflows/ci.yml/badge.svg)](https://github.com/ai-pavel/photon/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/ai-pavel/photon/branch/main/graph/badge.svg)](https://codecov.io/gh/ai-pavel/photon)
 
 A path tracer written in Rust featuring BVH acceleration, multiple material types, and multi-threaded rendering via Rayon.
 
